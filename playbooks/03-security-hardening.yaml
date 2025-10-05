@@ -1,0 +1,61 @@
+- name: Security Hardening
+  hosts: all
+  become: true
+  tasks:
+    - name: Configure automatic security updates
+      ansible.builtin.apt:
+        name: unattended-upgrades
+        state: present
+    - name: Configure UFW firewall
+      community.general.ufw:
+        state: enabled
+        policy: deny
+        direction: incoming
+    - name: Allow SSH
+      community.general.ufw:
+        rule: allow
+        port: '22'
+        proto: tcp
+    - name: Allow HTTP
+      community.general.ufw:
+        rule: allow
+        port: '80'
+        proto: tcp
+    - name: Allow HTTPS
+      community.general.ufw:
+        rule: allow
+        port: '443'
+        proto: tcp
+    - name: Disable root login
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PermitRootLogin'
+        line: 'PermitRootLogin no'
+        backup: true
+      notify: Restart SSH
+    - name: Disable password authentication
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PasswordAuthentication'
+        line: 'PasswordAuthentication no'
+        backup: true
+      notify: Restart SSH
+    - name: Ensure .ssh dir exists
+      ansible.builtin.file:
+        path: "/home/{{ username }}/.ssh"
+        state: directory
+        owner: "{{ username }}"
+        group: "{{ username }}"
+        mode: "0700"
+    - name: Add SSH key for user
+      ansible.posix.authorized_key:
+        user: "{{ username }}"
+        key: "{{ ssh_public_key }}"
+        state: present
+        manage_dir: false
+      notify: Restart SSH
+  handlers:
+    - name: Restart SSH
+      ansible.builtin.systemd:
+        name: ssh
+        state: restarted

@@ -1,0 +1,67 @@
+- name: Install GitHub Actions Runner
+  hosts: all
+  become: true
+  vars_files:
+    - vars/main.yaml
+  tasks:
+    - name: Create actions-runner user
+      ansible.builtin.user:
+        name: actions-runner
+        home: /home/actions-runner
+        shell: /bin/bash
+        create_home: true
+    - name: Create runner directory
+      ansible.builtin.file:
+        path: /home/actions-runner/actions-runner
+        state: directory
+        owner: actions-runner
+        group: actions-runner
+        mode: "0o755"
+    - name: Download GitHub Actions Runner
+      ansible.builtin.get_url:
+        url: "https://github.com/actions/runner/releases/download/v{{ runner_version }}/actions-runner-linux-x64-{{ runner_version }}.tar.gz"
+        dest: "/tmp/actions-runner-linux-x64-{{ runner_version }}.tar.gz"
+        mode: "0o644"
+        force: false
+    - name: Extract GitHub Actions Runner
+      ansible.builtin.unarchive:
+        src: "/tmp/actions-runner-linux-x64-{{ runner_version }}.tar.gz"
+        dest: /home/actions-runner/actions-runner
+        owner: actions-runner
+        group: actions-runner
+        remote_src: true
+        creates: /home/actions-runner/actions-runner/config.sh
+    - name: Install dependencies for runner
+      ansible.builtin.command:
+        cmd: ./bin/installdependencies.sh
+        chdir: /home/actions-runner/actions-runner
+      become_user: actions-runner
+      changed_when: false
+    - name: Get runner registration token
+      ansible.builtin.uri:
+        url: "https://api.github.com/repos/{{ github_repo }}/actions/runners/registration-token"
+        method: POST
+        headers:
+          Authorization: "token {{ github_token }}"
+          Accept: "application/vnd.github.v3+json"
+        status_code: 201
+      register: runner_token_response
+    - name: Configure GitHub Actions Runner
+      ansible.builtin.command:
+        cmd: >
+          ./config.sh --url https://github.com/{{ github_repo }} --token {{ runner_token_response.json.token }} --name {{ runner_name }} --labels self-hosted,linux,x64 --unattended
+
+        chdir: /home/actions-runner/actions-runner
+        creates: /home/actions-runner/actions-runner/.runner
+      become: true
+      become_user: actions-runner
+    - name: Install runner as service
+      ansible.builtin.command:
+        cmd: ./svc.sh install actions-runner
+        chdir: /home/actions-runner/actions-runner
+      changed_when: false
+    - name: Start and enable runner service
+      ansible.builtin.command:
+        cmd: ./svc.sh start
+        chdir: /home/actions-runner/actions-runner
+      changed_when: false

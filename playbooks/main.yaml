@@ -1,0 +1,8 @@
+- name: Complete VM Setup with GitHub Actions and Docker
+  import_playbook: 00-update-os.yaml
+- name: Install Docker
+  import_playbook: 01-install-docker.yaml
+- name: Install GitHub Actions Runner
+  import_playbook: 02-install-github-runner.yaml
+- name: Security Hardening
+  import_playbook: 03-security-hardening.yaml
