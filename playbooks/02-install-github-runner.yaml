@@ -2,7 +2,7 @@
   hosts: all
   become: true
   vars_files:
-    - vars/main.yaml
+    - ../vars/main.yaml
   tasks:
     - name: Create actions-runner user
       ansible.builtin.user:
@@ -12,56 +12,73 @@
         create_home: true
     - name: Create runner directory
       ansible.builtin.file:
-        path: /home/actions-runner/actions-runner
+        path: /home/actions-runner/{{github_repo}}
         state: directory
         owner: actions-runner
         group: actions-runner
-        mode: "0o755"
+    - name: Create register token github action runner
+      ansible.builtin.uri:
+        url: "https://api.github.com/{% if github_target_type == 'org' %}orgs/{{ github_org }}{% else %}repos/{{ github_org }}/{{ github_repo }}{% endif %}/actions/runners/registration-token"
+        method: POST
+        headers:
+          Accept: application/vnd.github+json
+          Authorization: Bearer {{ github_token }}
+          X-GitHub-Api-Version: "{{ github_api_version }}"
+        status_code: 201
+        return_content: true
+      register: github_register_token
+    - name: Get Github Action runner download list
+      ansible.builtin.uri:
+        url: "https://api.github.com/{% if github_target_type == 'org' %}orgs/{{ github_org }}{% else %}repos/{{ github_org }}/{{ github_repo }}{% endif %}/actions/runners/downloads"
+        method: GET
+        headers:
+          Accept: "application/vnd.github+json"
+          Authorization: "Bearer {{ github_token }}"
+          X-GitHub-Api-Version: "{{ github_api_version }}"
+        return_content: true
+      when: github_target_type == "repo"
+      register: github_runner_downloads
+    - name: Extract Linux x64 runner download url
+      ansible.builtin.set_fact:
+        runner_download_url: "{{ (github_runner_downloads.json | selectattr('os', 'equalto', 'linux') | selectattr('architecture', 'equalto', 'x64') | map(attribute='download_url') | first) }}"
     - name: Download GitHub Actions Runner
       ansible.builtin.get_url:
         url: "https://github.com/actions/runner/releases/download/v{{ runner_version }}/actions-runner-linux-x64-{{ runner_version }}.tar.gz"
         dest: "/tmp/actions-runner-linux-x64-{{ runner_version }}.tar.gz"
-        mode: "0o644"
         force: false
     - name: Extract GitHub Actions Runner
       ansible.builtin.unarchive:
         src: "/tmp/actions-runner-linux-x64-{{ runner_version }}.tar.gz"
-        dest: /home/actions-runner/actions-runner
+        dest: "/home/actions-runner/{{ github_repo }}"
         owner: actions-runner
         group: actions-runner
         remote_src: true
-        creates: /home/actions-runner/actions-runner/config.sh
-    - name: Install dependencies for runner
-      ansible.builtin.command:
-        cmd: ./bin/installdependencies.sh
-        chdir: /home/actions-runner/actions-runner
       become_user: actions-runner
       changed_when: false
     - name: Get runner registration token
       ansible.builtin.uri:
-        url: "https://api.github.com/repos/{{ github_repo }}/actions/runners/registration-token"
+        url: "https://api.github.com/{% if github_target_type == 'org' %}orgs/{{ github_org }}{% else %}repos/{{ github_org }}/{{ github_repo }}{% endif %}/actions/runners/registration-token"
         method: POST
         headers:
-          Authorization: "token {{ github_token }}"
-          Accept: "application/vnd.github.v3+json"
+          Authorization: "Bearer {{ github_token }}"
+          Accept: "application/vnd.github+json"
+          X-GitHub-Api-Version: "{{ github_api_version }}"
         status_code: 201
       register: runner_token_response
     - name: Configure GitHub Actions Runner
       ansible.builtin.command:
         cmd: >
-          ./config.sh --url https://github.com/{{ github_repo }} --token {{ runner_token_response.json.token }} --name {{ runner_name }} --labels self-hosted,linux,x64 --unattended
-
-        chdir: /home/actions-runner/actions-runner
-        creates: /home/actions-runner/actions-runner/.runner
+          ./config.sh  --url https://github.com/{% if github_target_type == 'org' %}{{ github_org }}{% else %}{{ github_org }}/{{ github_repo }}{% endif %} --token {{ runner_token_response.json.token }} --name {{ runner_name }} --labels self-hosted,linux,x64 --unattended
+        chdir: "/home/actions-runner/{{ github_repo }}"
       become: true
       become_user: actions-runner
     - name: Install runner as service
       ansible.builtin.command:
-        cmd: ./svc.sh install actions-runner
-        chdir: /home/actions-runner/actions-runner
+        cmd: ./svc.sh install
+        chdir: "/home/actions-runner/{{ github_repo }}"
       changed_when: false
     - name: Start and enable runner service
       ansible.builtin.command:
         cmd: ./svc.sh start
-        chdir: /home/actions-runner/actions-runner
+        chdir: "/home/actions-runner/{{ github_repo }}"
       changed_when: false

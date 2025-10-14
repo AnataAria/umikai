@@ -1,7 +1,10 @@
 runner_version: "2.311.0"
 github_token: "ghp_XXXXXXXXXXXXXXXXXXXX"
-github_repo: "sekai-labs/example-repo"
+github_repo: "example-repo"
+github_api_version: "2022-11-28"
 runner_name: "{{ inventory_hostname }}-runner"
-runner_dir: "/home/actions-runner/actions-runner"
+runner_dir: "/home/actions-runner/{{ github_repo }}"
 runner_user: "actions-runner"
 runner_allow_root: true
+github_target_type: "repo" # or "org"
+github_org: "sekai-labs"
